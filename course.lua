@@ -8,13 +8,14 @@ task_exec_delta = 2
 
 -- размер буферной памяти
 buffer_size = 1
-buffer_count = 0
+buffer = {}
+task_exec_finish = {}
 
 -- время, через которое задача отбрасывается
 old_task_time = 12
 
 -- кол-во генерируемых задач
-tasks_count = 200
+generate_tasks_count = 200
 
 -- общее время моделирования
 model_time = 0
@@ -42,64 +43,82 @@ function get_task_exec_tau()
     return random(task_exec, task_exec_delta)
 end
 
+function clear_old_times(list, time)
+    tmp = {}
+    for j = 1, #list do
+        if list[j] > time then
+            table.insert(tmp, list[j])
+        end
+    end
+    list = tmp
+    return list
+end
+
+function clear_buffer()
+    tmp = {}
+    for j = 1, #buffer do
+        if buffer[j] > model_time then
+            table.insert(tmp, buffer[j])
+        end
+    end
+    buffer = tmp
+end
+
+function clear_exec()
+    tmp = {}
+    for j = 1, #task_exec_finish do
+        if task_exec_finish[j] > model_time then
+            table.insert(tmp, task_exec_finish[j])
+        end
+    end
+    task_exec_finish = tmp
+end
+
 
 function model(n)
     for i = 1, n do
         tau_task_in = get_task_in_tau()
         model_time = model_time + tau_task_in
     
-        if  0 < buffer_count and buffer_count <= buffer_size and model_time >= buffer_free_time then
-            buffer_count = buffer_count - 1
-        end
+        -- очистить в буфере и компьютере старые записи
+        buffer = clear_old_times(buffer, model_time)
+        task_exec_finish = clear_old_times(task_exec_finish, model_time)
     
-        if buffer_count < buffer_size and model_time >= buffer_free_time then
-    
-            -- если компьютер занят, то остаемся в очереди
-            if model_time < model_time_task_exec then
-                -- print('занят ' .. tostring(task_in_buffer_time))
-                buffer_count = buffer_count + 1
-            end
-            
-            if buffer_count == buffer_size then
-                buffer_free_time = model_time_task_exec
-            end
-            
-            task_in_buffer_time = model_time_task_exec - model_time
-            -- удаляем сообщение, которое в буфере > 12 секунд
-            if task_in_buffer_time > old_task_time then
-                buffer_count = buffer_count - 1
-                task_lost_old = task_lost_old + 1
-                goto continue
-            end
-    
-        
-            tau_task_exec = get_task_exec_tau()
-            task_exec_total = task_exec_total + tau_task_exec -- stats
-            
-            if model_time_task_exec < model_time then
-                model_time_task_exec = model_time + tau_task_exec
+        if #buffer < buffer_size then
+
+            if #task_exec_finish == 0 then
+                buffer_free_time = model_time
             else
-                model_time_task_exec = model_time_task_exec + tau_task_exec
+                buffer_free_time = math.max(table.unpack(task_exec_finish))
             end
-    
-    
-            task_success = task_success + 1
+            -- сохраняем время освобождения буфера
+            table.insert(buffer, buffer_free_time)
+            
+            -- удаляем сообщение, которое в буфере > 12 секунд
+            task_in_buffer_time = buffer_free_time - model_time
+            if task_in_buffer_time > old_task_time then
+                task_lost_old = task_lost_old + 1
+            else
+                -- иначе отправляем на выполнение колмпьютеру
+                tau_task_exec = get_task_exec_tau()
+                task_exec_total = task_exec_total + tau_task_exec -- stats
+                model_time_task_exec = buffer_free_time + tau_task_exec
+                -- сохраняем время окончания выполнения
+                table.insert(task_exec_finish, model_time_task_exec)
+
+                task_success = task_success + 1
+            end
         else
             task_lost = task_lost + 1
         end
-    
-        -- if  0 < buffer_count and buffer_count <= buffer_size then
-        --     buffer_count = buffer_count - 1
-        -- end
-        ::continue::
     end
 end
 
-model(tasks_count)
+model(generate_tasks_count)
 
 print(string.format('Время моделирования %f', model_time_task_exec))
 print(string.format('Время работы компьютера %f', task_exec_total))
-print(string.format('Всего задач сгенерировано %d', tasks_count))
+print(string.format('Всего задач сгенерировано %d', generate_tasks_count))
 print(string.format('Выполнено задач %d', task_success))
 print(string.format('Потеряно задач %d', task_lost))
 print(string.format('Потеряно задач по условию %d', task_lost_old))
